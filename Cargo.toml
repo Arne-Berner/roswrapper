@@ -1,0 +1,29 @@
+[package]
+name = "roswrapper"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+env_logger = "0.11.8"
+# You will need to specify at least one backend to use with roslibrust, available options are [ros1, rosbridge, zenoh, mock] (ros2 is coming soon)
+# You will also need to specify the "codegen" feature, as the generated ROS types rely on features from this module
+roslibrust = { version = "0.15", features = ["rosbridge", "codegen"] }
+# RosLibRust is built on tokio, and requires a multi-threaded tokio runtime.
+# You don't need the "full" tokio feature set, but it is a good starting place
+tokio = { version = "1", features = ["full"] }
+bke_ccl = { git = "https://github.com/arne-berner/bke_ccl.git", branch = "double_wgpu" }
+flume = "0.12.0"
+wgpu = "28.0.0"
+anyhow = "1.0.100"
+bytemuck = "1.24.0"
+
+# What crates your code needs for testing and examples
+[dev-dependencies]
+# For testing you'll want to use the "mock" backend if you specify it here, it won't affect your production builds
+roslibrust = { version = "0.15", features = ["mock"] }
+tokio = { version = "1", features = ["test-util"] }
+
+# What crates your code needs to run it's build.rs file
+[build-dependencies]
+# In build.rs we'll use roslibrust's codegen features to generate Rust types from ROS .msg/.srv files
+roslibrust = { version = "0.15", features = ["codegen"] }
