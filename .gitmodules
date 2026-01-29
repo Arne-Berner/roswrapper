@@ -1,0 +1,6 @@
+[submodule "assets/common_interfaces"]
+	path = assets/common_interfaces
+	url = https://github.com/ros2/common_interfaces
+[submodule "assets/rcl_interfaces"]
+	path = assets/rcl_interfaces
+	url = https://github.com/ros2/rcl_interfaces

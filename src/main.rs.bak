@@ -1,0 +1,192 @@
+mod messages;
+use messages::*;
+mod check_array;
+use check_array::*;
+mod show_result;
+use std::sync::mpsc;
+
+use winit::{
+    event::{Event, WindowEvent},
+    event_loop::EventLoop,
+    window::Window,
+};
+
+// Bring in traits we need from roslibrust
+use roslibrust::{
+    codegen::Time,
+    traits::{Publish, Ros, Subscribe},
+};
+
+use crate::messages::{
+    geometry_msgs::{Point, Pose, Quaternion},
+    nav_msgs::MapMetaData,
+};
+use std::sync::Arc;
+use tokio::sync::Mutex;
+
+// Writing a simple publisher behavior using roslibrust's generic traits
+async fn pub_counter(ros: impl Ros, state: Arc<Mutex<Vec<i8>>>) {
+    // This will nicely control the rat our code runs at
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
+    // Create a publisher on our topic
+    let publisher = ros
+        .advertise::<nav_msgs::OccupancyGrid>("/example_counter")
+        .await
+        .expect("Could not create publisher!");
+
+    loop {
+        // Wait for next tick of our interval timer
+        interval.tick().await;
+
+        // Lock our state and read the current value
+        let cur_val = state.lock().await.clone();
+
+        // Publish the current value
+        publisher
+            .publish(&nav_msgs::OccupancyGrid {
+                header: std_msgs::Header {
+                    stamp: Time {
+                        secs: 23,
+                        nsecs: 400,
+                    },
+                    frame_id: "abc".to_string(),
+                },
+                info: MapMetaData {
+                    map_load_time: Time {
+                        secs: 23,
+                        nsecs: 400,
+                    },
+                    resolution: 1.0,
+                    width: 8,
+                    height: 8,
+                    origin: Pose {
+                        position: Point {
+                            x: 0.0,
+                            y: 0.0,
+                            z: 0.0,
+                        },
+                        orientation: Quaternion {
+                            x: 0.0,
+                            y: 0.0,
+                            z: 0.0,
+                            w: 0.0,
+                        },
+                    },
+                },
+                data: cur_val,
+            })
+            .await
+            .expect("Failed to publish message!");
+
+    }
+}
+
+async fn sub_counter(ros: impl Ros, state: Arc<Mutex<Vec<i8>>>) {
+    // Create a subscriber on our topic
+    let mut subscriber = ros
+        .subscribe::<nav_msgs::OccupancyGrid>("/map")
+        .await
+        .expect("Could not create subscriber!");
+
+    loop {
+        // Wait for next message
+        let msg = subscriber.next().await.expect("Failed to get message!");
+
+        // Print the message
+        // println!("Got message: {:?}", msg.data);
+        
+        let arr_state = CheckArrays::new(msg.data).await.unwrap();
+        let buffer = arr_state.compute().await.unwrap();
+        *state.lock().await = buffer;
+    }
+}
+
+#[tokio::main]
+async fn main() {
+    // Initialize a logger to help with debugging
+    env_logger::init();
+
+    // Create a rosbridge client we can use
+    let ros = roslibrust::rosbridge::ClientHandle::new("ws://localhost:9090")
+        .await
+        .expect("Failed to connect to rosbridge!");
+
+    // Create a shared state we can use to track our counter
+    let gridmap = vec![
+            1, 0, 0, 0, 0, 0, 0, 0,
+            0, 1, 1, 1, 1, 0, 0, 0,
+            0, 1, 1, 1, 0, 0, 0, 0,
+            0, 1, 1, 1, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 1,
+    ];
+    let shared_state = Arc::new(Mutex::new(gridmap));
+
+    // Spawn a new tokio task to run our publisher:
+    tokio::spawn(pub_counter(ros.clone(), buf_state.clone()));
+
+    // Spawn a new tokio task to run our subscriber:
+    tokio::spawn(sub_counter(ros, shared_state.clone()));
+
+    let event_loop = EventLoop::new().unwrap();
+    let builder = winit::window::WindowBuilder::new();
+    let window = builder.build(&event_loop).unwrap();
+    show_result::run(event_loop, window).await;
+    // Wait for ctrl_c
+    tokio::signal::ctrl_c().await.unwrap();
+}
+
+// cfg(test) here means that this code is only compile when invoking `cargo test` and doesn't get included in normal builds
+#[cfg(test)]
+mod test {
+    // Bring pub_counter and sub_counter into scope
+    use super::*;
+
+    // Tokio will automatically set up an individual async runtime for this test
+    #[tokio::test]
+    async fn test_pub_sub_counter() {
+        // To let us see how long the test takes to run record the current time
+        let tick = std::time::SystemTime::now();
+        // MAGIC HERE:
+        tokio::time::pause();
+
+        // Create a mock ros instance we can use
+        // This instance of ROS is unique to this test and won't interfere with any other tests running parallel
+        let ros = roslibrust::mock::MockRos::new();
+
+        // Creating separate states so we can inspect individually how they change
+        let gridmap = vec![
+            0,0,0,0,0,
+            0,0,1,0,0,
+            0,0,1,0,0,
+            0,1,1,0,0,
+            0,0,0,1,1,
+        ];
+        let publisher_state = Arc::new(Mutex::new(gridmap));
+        let subscriber_state = Arc::new(Mutex::new(10));
+
+        // Spawn a new tokio task to run our publisher:
+        tokio::spawn(pub_counter(ros.clone(), publisher_state.clone()));
+        // Spawn a new tokio task to run our subscriber:
+        tokio::spawn(sub_counter(ros, subscriber_state.clone()));
+
+        // The publisher and subscriber run for a bit in the background
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+        let published_count = *publisher_state.lock().await;
+        let subscribed_count = *subscriber_state.lock().await;
+        // Check the exact number of messages our publisher and subscriber got
+        assert_eq!(
+            published_count, 10,
+            "Published count should be 10, but was {published_count}"
+        );
+        assert_eq!(
+            subscribed_count, 0,
+            "Subscribed count should be 0, but was {subscribed_count}"
+        );
+        // Purely for demonstration purposes, show how long this test takes to run
+        let tock = std::time::SystemTime::now();
+        println!("Test took in realtime {:?}", tock.duration_since(tick));
+    }
+}
