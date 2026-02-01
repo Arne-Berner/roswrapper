@@ -10,7 +10,7 @@ use winit::
 // Bring in traits we need from roslibrust
 use roslibrust::{Publish, codegen::Time, traits::{Ros, Subscribe}};
 
-use crate::{messages::{geometry_msgs::{Point, Pose, Quaternion}, nav_msgs::MapMetaData}, show_result::{App, BufferBundle, UserEvent, random_buffer_bundle}};
+use crate::{messages::{geometry_msgs::{Point, Pose, Quaternion}, nav_msgs::MapMetaData}, show_result::{App, BufferBundle, DataBundle, UserEvent, random_buffer_bundle}};
 use wgpu::{Device, Queue, util::{BufferInitDescriptor, DeviceExt}};
 use bke_ccl::CCLState;
 
@@ -29,7 +29,9 @@ async fn pub_counter(ros: impl Ros) {
         interval.tick().await;
 
         // Lock our state and read the current value
+        // TODO Präsentation
         let data_bundle = random_buffer_bundle();
+        // let data_bundle = DataBundle{ data: vec![1, -1, -1, 0], width: 4, height: 1};
 
         // Publish the current value
         publisher
@@ -88,7 +90,14 @@ async fn sub_counter(ros: impl Ros, sender: Sender<BufferBundle>, receiver: Rece
 
         // Print the message
         
-        let image_bytes: Vec<u32> = msg.data.iter().copied().map(|x| x.max(0) as u32).collect();
+        let image_bytes: Vec<u32> = msg.data.iter().copied().map(|x| {
+            // (!x.max(0) & 1) as u32
+            if x == -1 {
+                1 as u32
+            } else {
+                (x.max(0) & 1) as u32
+            }
+        }).collect();
         let input_buffer = device.create_buffer_init(&BufferInitDescriptor {
             label: Some("input"),
             contents: bytemuck::cast_slice(&image_bytes),
@@ -128,7 +137,7 @@ async fn main() {
     let (device_tx, device_rx) = mpsc::channel::<(Device,Queue)>();
 
     // Spawn a new tokio task to run our subscriber:
-    tokio::spawn(pub_counter(ros.clone()));
+    // tokio::spawn(pub_counter(ros.clone()));
     tokio::spawn(sub_counter(ros.clone(), buffer_tx.clone(), device_rx));
 
 
