@@ -21,8 +21,11 @@ labels: array<u32>;
 @group(1) @binding(1) var<uniform> 
 dims : Dimensions;
 
+fn rand11(n: f32) -> f32 {
+    return fract(sin(n) * 43758.5453123);
+}
 // top left:    0,0
-// top right:   2,0
+// top right:   2,2
 // bottom left: 0,2
 @vertex
 fn vs_main(@builtin(vertex_index) vertex_index: u32)-> FullscreenVertexOutput {
@@ -44,7 +47,15 @@ fn fs_main(@location(0) position: vec2<f32>)-> @location(0) vec4<f32> {
     let max_y = dims.rows;
     let idx: u32 = u32(position.x * max_x) + u32(position.y * dims.rows) * u32(dims.columns);
     let pixel = f32(labels[idx]);
-    color = vec3<f32>(pixel);
+    if pixel != 0 {
+        let r = (rand11(pixel / 100.0));
+        let g = ((rand11(pixel / 100.0 + 0.3)));
+        let b = ((rand11(pixel / 100.0 + 0.6)));
+        color = vec3<f32>(r,g,b);
+    } else {
+        color = vec3<f32>(0);
+    }
+    // color = vec3<f32>(pixel);
 
     return vec4<f32>(color, 1.0);
 
